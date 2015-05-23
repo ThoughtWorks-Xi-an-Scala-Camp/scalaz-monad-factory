@@ -30,13 +30,17 @@ private object Transformer {
 
     sealed abstract class TransformedTree {
       def monad: c.Tree
+
       def tpe: Type
+
       def flatMap(f: c.Tree => TransformedTree): TransformedTree
+
       def prepend(head: c.Tree): TransformedTree
     }
 
     final case class OpenTree(prefix: TransformedTree, parameter: ValDef, inner: TransformedTree)
-      extends TransformedTree { self =>
+      extends TransformedTree {
+      self =>
 
       override final def prepend(head: c.Tree) = {
         OpenTree(prefix.prepend(head), parameter, inner)
@@ -77,6 +81,7 @@ private object Transformer {
     final case class BlockTree(prefix: List[c.Tree], tail: TransformedTree) extends TransformedTree {
 
       override final def tpe = tail.tpe
+
       override final def prepend(head: c.Tree) = {
         BlockTree(head :: prefix, tail)
       }
@@ -84,6 +89,7 @@ private object Transformer {
       override final def monad: c.Tree = {
         Block(prefix, tail.monad)
       }
+
       override final def flatMap(f: c.Tree => TransformedTree): TransformedTree = {
         BlockTree(prefix, tail.flatMap(f))
       }
@@ -123,18 +129,35 @@ private object Transformer {
       transformedTree.flatMap { x => PlainTree(Typed(x, TypeTree(tpe)), tpe) }
     }
 
-    def transform(origin: c.Tree): TransformedTree = {
+    def transform(origin: c.Tree)(implicit forceAwait: Set[Name]): TransformedTree = {
       origin match {
-
         case Apply(
-          TypeApply(
-            Select(transformer, await),
-            List(awaitValueTypeTree)),
-          List(monadTree)) if await.decodedName.toString == "await" &&
+        TypeApply(
+        Select(transformer, await),
+        List(awaitValueTypeTree)),
+        List(monadTree)) if await.decodedName.toString == "await" &&
           transformer.tpe =:= thisType => {
           transform(monadTree).flatMap { x =>
             new MonadTree(x, awaitValueTypeTree.tpe)
           }
+        }
+        case Apply(method@Ident(name), parameters) if forceAwait(name) => {
+          c.warning(c.enclosingPosition, "name")
+          def transformParameters(untransformed: List[Tree], transformed: List[Tree]): TransformedTree = {
+            untransformed match {
+              case Nil => {
+                transform(method).flatMap { transformedMethod =>
+                  new MonadTree(Apply(transformedMethod, transformed.reverse), origin.tpe)
+                }
+              }
+              case head :: tail => {
+                transform(head).flatMap { transformedHead =>
+                  transformParameters(tail, transformedHead :: transformed)
+                }
+              }
+            }
+          }
+          transformParameters(parameters, Nil)
         }
         case Try(block, catches, finalizer) => {
           val tryCatch = catches.foldLeft(transform(block).monad) { (tryMonad, cd) =>
@@ -257,7 +280,19 @@ private object Transformer {
         case Annotated(annot, arg) => {
           ???
         }
-        case LabelDef(name, params, rhs) => {
+        case LabelDef(name1, List(), If(condition, block @ Block(body, Apply(Ident(name2), List())), Literal(Constant(()))))
+          if name1 == name2 => {
+          new MonadTree(
+            Apply(
+              TypeApply(
+                Select(TypeApply(reify(_root_.scalaz.Monad).tree, List(TypeTree(monadType))), TermName("whileM_")),
+                List(TypeTree(origin.tpe))),
+              List(
+                transform(condition).monad,
+                transform(treeCopy.Block(block, body, Literal(Constant(())))).monad)),
+            origin.tpe)
+        }
+        case LabelDef(_, _, _) => {
           ???
         }
         case EmptyTree | _: Throw | _: Return | _: New | _: Ident | _: Literal | _: Super | _: This | _: TypTree | _: New | _: TypeDef | _: Function | _: DefDef | _: ClassDef | _: ModuleDef | _: Import | _: ImportSelector => {
@@ -266,7 +301,7 @@ private object Transformer {
         }
       }
     }
-    val result = transform(inputTree)
+    val result = transform(inputTree)(Set.empty)
 //    c.info(c.enclosingPosition, show(result.monad), true)
     c.untypecheck(result.monad)
   }

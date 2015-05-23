@@ -8,8 +8,29 @@ import scalaz.effect.MonadCatchIO
 import scalaz.effect.IO
 import org.junit.Assert
 
-class TransformerTest {
+final class TransformerTest {
 
+  @Test
+  def testWhile(): Unit = {
+    import scalaz.std.option._
+
+    val transformer = new Transformer[Option]
+    import transformer._
+
+    def s = Some("123")
+    var count = 0
+    async {
+      var i = 0
+      while (i < 4) {
+        i += 1
+        count += s.length
+      }
+    }
+
+    Assert.assertEquals(Some(12), count)
+  }
+
+  @Test
   def testDefDef(): Unit = {
     import scalaz.std.option._
 
@@ -49,7 +70,7 @@ class TransformerTest {
 
     val transformer = new Transformer[Option]
     import transformer._
-    val s:Option[Seq[_]] = None
+    val s: Option[Seq[_]] = None
 
     val lengthOption = async {
       s.length
@@ -68,8 +89,8 @@ class TransformerTest {
       new String("a string")
     }
 
-    Assert.assertEquals(Monad[Option].pure(new String("a string")), newS )
-    Assert.assertEquals(Some(new String("a string")), newS )
+    Assert.assertEquals(Monad[Option].pure(new String("a string")), newS)
+    Assert.assertEquals(Some(new String("a string")), newS)
   }
 
   @Test
@@ -81,8 +102,8 @@ class TransformerTest {
       new String("a string")
     }
 
-    Assert.assertEquals(Monad[List].pure(new String("a string")), newS )
-    Assert.assertEquals(List(new String("a string")), newS )
+    Assert.assertEquals(Monad[List].pure(new String("a string")), newS)
+    Assert.assertEquals(List(new String("a string")), newS)
   }
 
   @Test
@@ -207,7 +228,7 @@ def testCatch(): Unit = {
     val io = async {
       try {
         count += 1
-        (null:Array[Int])(0)
+        (null: Array[Int])(0)
       } catch {
         case e: NullPointerException => {
           count += 1
@@ -246,7 +267,6 @@ def testCatch(): Unit = {
   }
 
 
-
   /* Disable since it is not implemented yet
   def testWhile(): Unit = {
 
@@ -260,7 +280,6 @@ def testCatch(): Unit = {
     }
   }
   */
-  
+
 }
 
- 
